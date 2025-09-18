@@ -1,6 +1,33 @@
 import app from './lib/immersive-app.js';
 import socket from './lib/socket.js';
-import { draw, drawQuadrant } from './lib/canvas.js';
+import { drawParticipantBox } from './lib/canvas.js';
+
+const LAYOUT_COORDS = {
+    // Coordenadas para el presentador principal (gran recuadro central)
+    mainPresenter: {
+        x: 0,
+        y: 0,
+        width: 1, // Ocupa todo el ancho
+        height: 1 // Ocupa todo el alto
+    },
+    // Coordenadas para los participantes pequeños (columnas laterales)
+    smallParticipants: [
+        // Columna Izquierda (cuatro recuadros)
+        { x: 0.01, y: 0.01, width: 0.18, height: 0.235 }, // Top-Left 1
+        { x: 0.01, y: 0.255, width: 0.18, height: 0.235 }, // Mid-Left 2
+        { x: 0.01, y: 0.50, width: 0.18, height: 0.235 }, // Mid-Left 3
+        { x: 0.01, y: 0.745, width: 0.18, height: 0.235 }, // Bottom-Left 4
+
+        // Columna Derecha (cuatro recuadros)
+        { x: 0.81, y: 0.01, width: 0.18, height: 0.235 }, // Top-Right 5
+        { x: 0.81, y: 0.255, width: 0.18, height: 0.235 }, // Mid-Right 6
+        { x: 0.81, y: 0.50, width: 0.18, height: 0.235 }, // Mid-Right 7
+        { x: 0.81, y: 0.745, width: 0.18, height: 0.235 }  // Bottom-Right 8
+    ]
+};
+
+let participants = [];
+let mainPresenterId = ''; // Almacena el zoomID del presentador principal
 
 const colors = {
     black: '#131619',
@@ -108,43 +135,78 @@ async function start() {
  * Draw the entire screen - to be used with debounce()
  * @return {Promise<void>}
  */
-async function render() {
-    if (!app.isImmersive) return;
-
-    const width = innerWidth * devicePixelRatio;
-    const height = innerHeight * devicePixelRatio;
-
-    canvas.style.width = '100%';
-    canvas.style.height = '100%';
-
-    canvas.width = width;
-    canvas.height = height;
-
-    ctx.fillStyle = settings.color;
-
-    // we clear screen before drawing to avoid visual glitches on fast machines
-    await app.clearAllParticipants();
-    await app.clearAllImages();
-
-    // we draw to the page canvas so the user sees the change right away
-    const data = await draw({
-        ctx,
-        participants: settings.cast,
-        text: settings.topic,
-    });
-
-    // then we save our quadrants to Zoom at the correct zIndexes
-    for (let i = 0; i < data.length; i++) {
-        const { participant, img } = data[i];
-        const id = participant?.participantId;
-
-        await app.drawImage(img);
-        if (id) await app.drawParticipant(participant);
+const render = () => {
+    if (!participants.length || !canvas || !canvas.getContext) {
+        return;
     }
 
-    // Clear the page canvas that we drew over with Zoom
-    clearCanvas();
-}
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+        return;
+    }
+
+    // 1. Limpiar el canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // 2. Dibujar el Presentador Principal
+    const mainPresenterParticipant = participants.find(p => p.zoomID === mainPresenterId);
+    if (mainPresenterParticipant && mainPresenterParticipant.video) {
+        // Ajustar las coordenadas para que el presentador principal ocupe casi todo el espacio, dejando un margen
+        const mainX = LAYOUT_COORDS.mainPresenter.x + 0.2; // Mover 20% a la derecha
+        const mainY = LAYOUT_COORDS.mainPresenter.y + 0.05; // Mover 5% hacia abajo
+        const mainWidth = LAYOUT_COORDS.mainPresenter.width - 0.4; // Reducir 40% del ancho (20% de cada lado)
+        const mainHeight = LAYOUT_COORDS.mainPresenter.height - 0.1; // Reducir 10% del alto (5% de arriba y abajo)
+
+        drawParticipantBox(
+            ctx,
+            mainPresenterParticipant,
+            mainX,
+            mainY,
+            mainWidth,
+            mainHeight,
+            canvas.width,
+            canvas.height
+        );
+
+        // Añadir un borde distintivo para el presentador principal
+        ctx.strokeStyle = 'red';
+        ctx.lineWidth = 5;
+        ctx.strokeRect(
+            mainX * canvas.width,
+            mainY * canvas.height,
+            mainWidth * canvas.width,
+            mainHeight * canvas.height
+        );
+    }
+
+    // 3. Dibujar los Participantes Pequeños
+    const smallParticipants = participants.filter(p => p.zoomID !== mainPresenterId);
+
+    LAYOUT_COORDS.smallParticipants.forEach((coords, index) => {
+        const participant = smallParticipants[index];
+        if (participant && participant.video) {
+            drawParticipantBox(
+                ctx,
+                participant,
+                coords.x,
+                coords.y,
+                coords.width,
+                coords.height,
+                canvas.width,
+                canvas.height
+            );
+            // Opcional: Añadir un borde delgado para los participantes pequeños
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(
+                coords.x * canvas.width,
+                coords.y * canvas.height,
+                coords.width * canvas.width,
+                coords.height * canvas.height
+            );
+        }
+    });
+};
 
 /**
  * Redraw the text index only
@@ -573,6 +635,64 @@ setCastBtn.onclick = async () => {
 };
 
 window.onresize = debounce(render, 1000);
+
+// === Lógica de Host para el Presentador Principal ===
+if (isHost) {
+    const mainPresenterSelect = document.getElementById('mainPresenterSelect');
+
+    // Función para poblar el select de presentadores
+    const populateMainPresenterSelect = () => {
+        if (!mainPresenterSelect) return;
+
+        // Guardar la selección actual antes de repoblar
+        const currentSelection = mainPresenterSelect.value;
+
+        // Limpiar opciones existentes, excepto la primera (None)
+        while (mainPresenterSelect.options.length > 1) {
+            mainPresenterSelect.remove(1);
+        }
+
+        // Añadir participantes como opciones
+        participants.forEach(p => {
+            const option = document.createElement('option');
+            option.value = p.zoomID;
+            option.textContent = p.displayName;
+            mainPresenterSelect.appendChild(option);
+        });
+
+        // Restaurar la selección si el participante sigue existiendo
+        if (currentSelection && participants.some(p => p.zoomID === currentSelection)) {
+            mainPresenterSelect.value = currentSelection;
+        } else {
+            mainPresenterSelect.value = ''; // Resetear si el presentador anterior ya no está
+            mainPresenterId = ''; // También resetear la variable interna
+            socket.emit('set-main-presenter', ''); // Notificar a todos que no hay presentador principal
+        }
+    };
+
+    // Escuchar cambios en los participantes para actualizar el select
+    socket.on('participants', (p) => {
+        participants = p;
+        populateMainPresenterSelect();
+        render(); // Volver a renderizar si los participantes cambian
+    });
+
+    // Escuchar el evento de cambio en el select
+    if (mainPresenterSelect) {
+        mainPresenterSelect.addEventListener('change', (event) => {
+            const selectedId = event.target.value;
+            mainPresenterId = selectedId;
+            socket.emit('set-main-presenter', selectedId); // Emitir el cambio al servidor
+            render(); // Renderizar inmediatamente en el host
+        });
+    }
+}
+
+// === Lógica de Cliente (Host y Viewers) para recibir cambios del Presentador Principal ===
+socket.on('main-presenter-update', (presenterId) => {
+    mainPresenterId = presenterId;
+    render(); // Volver a renderizar en todos los clientes cuando el presentador cambia
+});
 
 (async () => {
     try {

@@ -336,3 +336,42 @@ export async function draw({ ctx, participants, fill, text }) {
 
     return data;
 }
+
+export const drawParticipantBox = (
+    ctx,
+    participant,
+    relativeX,
+    relativeY,
+    relativeWidth,
+    relativeHeight,
+    canvasWidth,
+    canvasHeight
+) => {
+    const x = relativeX * canvasWidth;
+    const y = relativeY * canvasHeight;
+    const width = relativeWidth * canvasWidth;
+    const height = relativeHeight * canvasHeight;
+
+    // Dibujar el vídeo
+    if (participant.video) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x, y, width, height);
+        ctx.clip(); // Recortar el vídeo para que no se desborde del recuadro
+        // === MODIFICACIÓN CLAVE AQUÍ: Usar drawImage directamente ===
+        ctx.drawImage(participant.video, x, y, width, height);
+        ctx.restore();
+    } else {
+        // Si no hay vídeo, dibujar un fondo gris oscuro
+        ctx.fillStyle = '#333333';
+        ctx.fillRect(x, y, width, height);
+    }
+
+    // Dibujar el nombre del participante
+    ctx.font = `${Math.floor(height * 0.08)}px Arial`; // Tamaño de fuente dinámico
+    ctx.fillStyle = '#FFFFFF';
+    ctx.shadowColor = 'black';
+    ctx.shadowBlur = 5;
+    ctx.fillText(participant.displayName, x + 5, y + height - 5);
+    ctx.shadowBlur = 0; // Resetear la sombra para no afectar futuros dibujos
+};

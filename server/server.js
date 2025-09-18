@@ -69,6 +69,20 @@ function onConnection(io) {
                 socket.to(room).emit('update', data);
             }
         );
+
+        // Variable para almacenar el ID del presentador principal globalmente en el servidor
+        let currentMainPresenterId = '';
+
+        // Manejar el evento de cuando el host selecciona un presentador principal
+        socket.on('set-main-presenter', (presenterId) => {
+            currentMainPresenterId = presenterId;
+            // Emitir a todos los clientes (incluido el host) la actualización del presentador
+            io.emit('main-presenter-update', currentMainPresenterId);
+            console.log(`Main presenter set to: ${currentMainPresenterId || 'None'}`);
+        });
+
+        // Cuando un nuevo cliente se conecta, enviarle el estado actual del presentador principal
+        socket.emit('main-presenter-update', currentMainPresenterId);
     };
 }
 
