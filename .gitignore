@@ -327,7 +327,7 @@ GitHub.sublime-settings
 # *.log
 
 # CMake
-cmake-build-*/
+cmake-build-*
 
 # Mongo Explorer plugin
 .idea/**/mongoSettings.xml
@@ -360,9 +360,9 @@ fabric.properties
 .idea/caches/build_file_checksums.ser
 
 ### Emacs template
-# -*- mode: gitignore; -*-
+# -*- mode: gitignore; -*
 *~
-\#*\#
+#*#
 /.emacs.desktop
 /.emacs.desktop.lock
 *.elc
@@ -618,7 +618,7 @@ csx/
 *.build.csdef
 
 # Microsoft Azure Emulator
-ecf/
+ecff/
 rcf/
 
 # Windows Store app package directories and files
@@ -829,3 +829,5 @@ Icon
 Network Trash Folder
 Temporary Items
 .apdisk
+
+ngrok

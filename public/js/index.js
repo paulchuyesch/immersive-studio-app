@@ -1,6 +1,6 @@
 import app from './lib/immersive-app.js';
 import socket from './lib/socket.js';
-import { drawParticipantBox } from './lib/canvas.js';
+import { drawParticipantBox, drawQuadrant } from './lib/canvas.js';
 
 const LAYOUT_COORDS = {
     // Coordenadas para el presentador principal (gran recuadro central)
@@ -8,22 +8,22 @@ const LAYOUT_COORDS = {
         x: 0,
         y: 0,
         width: 1, // Ocupa todo el ancho
-        height: 1 // Ocupa todo el alto
+        height: 1, // Ocupa todo el alto
     },
     // Coordenadas para los participantes pequeños (columnas laterales)
     smallParticipants: [
         // Columna Izquierda (cuatro recuadros)
         { x: 0.01, y: 0.01, width: 0.18, height: 0.235 }, // Top-Left 1
         { x: 0.01, y: 0.255, width: 0.18, height: 0.235 }, // Mid-Left 2
-        { x: 0.01, y: 0.50, width: 0.18, height: 0.235 }, // Mid-Left 3
+        { x: 0.01, y: 0.5, width: 0.18, height: 0.235 }, // Mid-Left 3
         { x: 0.01, y: 0.745, width: 0.18, height: 0.235 }, // Bottom-Left 4
 
         // Columna Derecha (cuatro recuadros)
         { x: 0.81, y: 0.01, width: 0.18, height: 0.235 }, // Top-Right 5
         { x: 0.81, y: 0.255, width: 0.18, height: 0.235 }, // Mid-Right 6
-        { x: 0.81, y: 0.50, width: 0.18, height: 0.235 }, // Mid-Right 7
-        { x: 0.81, y: 0.745, width: 0.18, height: 0.235 }  // Bottom-Right 8
-    ]
+        { x: 0.81, y: 0.5, width: 0.18, height: 0.235 }, // Mid-Right 7
+        { x: 0.81, y: 0.745, width: 0.18, height: 0.235 }, // Bottom-Right 8
+    ],
 };
 
 let participants = [];
@@ -149,7 +149,9 @@ const render = () => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // 2. Dibujar el Presentador Principal
-    const mainPresenterParticipant = participants.find(p => p.zoomID === mainPresenterId);
+    const mainPresenterParticipant = participants.find(
+        (p) => p.zoomID === mainPresenterId
+    );
     if (mainPresenterParticipant && mainPresenterParticipant.video) {
         // Ajustar las coordenadas para que el presentador principal ocupe casi todo el espacio, dejando un margen
         const mainX = LAYOUT_COORDS.mainPresenter.x + 0.2; // Mover 20% a la derecha
@@ -180,7 +182,9 @@ const render = () => {
     }
 
     // 3. Dibujar los Participantes Pequeños
-    const smallParticipants = participants.filter(p => p.zoomID !== mainPresenterId);
+    const smallParticipants = participants.filter(
+        (p) => p.zoomID !== mainPresenterId
+    );
 
     LAYOUT_COORDS.smallParticipants.forEach((coords, index) => {
         const participant = smallParticipants[index];
@@ -599,7 +603,8 @@ topicBtn.onclick = async () => {
     await app.sdk.postMessage({ addTopic: topic });
 };
 
-setCastBtn.onclick = async () => {
+setCastBtn.onclick = async (event) => {
+    event.preventDefault();
     const selected = castSel.querySelectorAll('option:checked');
     const hasUI = app.drawnImages.length > 0;
 
@@ -637,7 +642,7 @@ setCastBtn.onclick = async () => {
 window.onresize = debounce(render, 1000);
 
 // === Lógica de Host para el Presentador Principal ===
-if (isHost) {
+if (app.userIsHost) {
     const mainPresenterSelect = document.getElementById('mainPresenterSelect');
 
     // Función para poblar el select de presentadores
@@ -653,7 +658,7 @@ if (isHost) {
         }
 
         // Añadir participantes como opciones
-        participants.forEach(p => {
+        participants.forEach((p) => {
             const option = document.createElement('option');
             option.value = p.zoomID;
             option.textContent = p.displayName;
@@ -661,7 +666,10 @@ if (isHost) {
         });
 
         // Restaurar la selección si el participante sigue existiendo
-        if (currentSelection && participants.some(p => p.zoomID === currentSelection)) {
+        if (
+            currentSelection &&
+            participants.some((p) => p.zoomID === currentSelection)
+        ) {
             mainPresenterSelect.value = currentSelection;
         } else {
             mainPresenterSelect.value = ''; // Resetear si el presentador anterior ya no está
