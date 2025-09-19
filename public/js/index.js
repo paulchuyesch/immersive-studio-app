@@ -131,10 +131,6 @@ async function start() {
         await app.sdk.sendAppInvitationToAllParticipants();
 }
 
-/**
- * Draw the entire screen - to be used with debounce()
- * @return {Promise<void>}
- */
 const render = () => {
     if (!participants.length || !canvas || !canvas.getContext) {
         return;
@@ -332,6 +328,40 @@ function setCastSelect(participants) {
     }
 }
 
+// Función para poblar el select de presentadores
+const populateMainPresenterSelect = () => {
+    const mainPresenterSelect = document.getElementById('mainPresenterSelect');
+    if (!mainPresenterSelect) return;
+
+    // Guardar la selección actual antes de repoblar
+    const currentSelection = mainPresenterSelect.value;
+
+    // Limpiar opciones existentes, excepto la primera (None)
+    while (mainPresenterSelect.options.length > 1) {
+        mainPresenterSelect.remove(1);
+    }
+
+    // Añadir participantes como opciones
+    app.participants.forEach((p) => {
+        const option = document.createElement('option');
+        option.value = p.zoomID;
+        option.textContent = p.displayName;
+        mainPresenterSelect.appendChild(option);
+    });
+
+    // Restaurar la selección si el participante sigue existiendo
+    if (
+        currentSelection &&
+        app.participants.some((p) => p.zoomID === currentSelection)
+    ) {
+        mainPresenterSelect.value = currentSelection;
+    } else {
+        mainPresenterSelect.value = ''; // Resetear si el presentador anterior ya no está
+        mainPresenterId = ''; // También resetear la variable interna
+        socket.emit('set-main-presenter', ''); // Notificar a todos que no hay presentador principal
+    }
+};
+
 /**
  * Hide and Show elements based on the Zoom Running Context
  */
@@ -354,6 +384,7 @@ function showElements() {
     if (app.userIsHost) {
         showEl(hostControls);
         setCastSelect(app.participants);
+        populateMainPresenterSelect();
     }
 }
 
@@ -438,8 +469,8 @@ app.sdk.onMeeting(({ action }) => {
     if (action === 'ended') socket.disconnect();
 });
 
-app.sdk.onParticipantChange(async ({ participants }) => {
-    for (const part of participants) {
+app.sdk.onParticipantChange(async ({ participants: sdkParticipants }) => {
+    for (const part of sdkParticipants) {
         const p = {
             participantId: part.participantId.toString(),
             screenName: part.screenName,
@@ -459,11 +490,19 @@ app.sdk.onParticipantChange(async ({ participants }) => {
             settings.cast.splice(idx, 1);
 
             if (app.isImmersive) await app.clearParticipant(p.participantId);
-        } else app.participants.push(p);
+        } else {
+            app.participants.push(p);
+        }
     }
+
+    participants = app.participants;
 
     await app.sdk.postMessage({ participants: app.participants });
     setCastSelect(app.participants);
+    if (app.userIsHost) {
+        populateMainPresenterSelect();
+    }
+    render();
 });
 
 app.sdk.onMessage(async ({ payload }) => {
@@ -473,7 +512,7 @@ app.sdk.onMessage(async ({ payload }) => {
         updateCast,
         ended,
         isHost,
-        participants,
+        participants: payloadParticipants,
         activeTopic,
         topicIndex,
         uuid,
@@ -498,10 +537,14 @@ app.sdk.onMessage(async ({ payload }) => {
     }
 
     // sync the list of participants
-    if (participants) {
+    if (payloadParticipants) {
         helpMsg.classList.add(classes.hidden);
         controls.classList.remove(classes.hidden);
-        setCastSelect(participants);
+        setCastSelect(payloadParticipants);
+        participants = payloadParticipants;
+        if (app.userIsHost) {
+            populateMainPresenterSelect();
+        }
     }
 
     // sync the list of displayed participants and draw them
@@ -644,46 +687,6 @@ window.onresize = debounce(render, 1000);
 // === Lógica de Host para el Presentador Principal ===
 if (app.userIsHost) {
     const mainPresenterSelect = document.getElementById('mainPresenterSelect');
-
-    // Función para poblar el select de presentadores
-    const populateMainPresenterSelect = () => {
-        if (!mainPresenterSelect) return;
-
-        // Guardar la selección actual antes de repoblar
-        const currentSelection = mainPresenterSelect.value;
-
-        // Limpiar opciones existentes, excepto la primera (None)
-        while (mainPresenterSelect.options.length > 1) {
-            mainPresenterSelect.remove(1);
-        }
-
-        // Añadir participantes como opciones
-        participants.forEach((p) => {
-            const option = document.createElement('option');
-            option.value = p.zoomID;
-            option.textContent = p.displayName;
-            mainPresenterSelect.appendChild(option);
-        });
-
-        // Restaurar la selección si el participante sigue existiendo
-        if (
-            currentSelection &&
-            participants.some((p) => p.zoomID === currentSelection)
-        ) {
-            mainPresenterSelect.value = currentSelection;
-        } else {
-            mainPresenterSelect.value = ''; // Resetear si el presentador anterior ya no está
-            mainPresenterId = ''; // También resetear la variable interna
-            socket.emit('set-main-presenter', ''); // Notificar a todos que no hay presentador principal
-        }
-    };
-
-    // Escuchar cambios en los participantes para actualizar el select
-    socket.on('participants', (p) => {
-        participants = p;
-        populateMainPresenterSelect();
-        render(); // Volver a renderizar si los participantes cambian
-    });
 
     // Escuchar el evento de cambio en el select
     if (mainPresenterSelect) {
