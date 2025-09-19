@@ -26,7 +26,6 @@ const LAYOUT_COORDS = {
     ],
 };
 
-let participants = [];
 let mainPresenterId = ''; // Almacena el zoomID del presentador principal
 
 const colors = {
@@ -50,7 +49,7 @@ const classes = {
     panel: 'panel-block',
 };
 
-/*  Page Elements */
+/* Page Elements */
 const canvas = document.getElementById('uiCanvas');
 const ctx = canvas.getContext('2d');
 
@@ -131,8 +130,13 @@ async function start() {
         await app.sdk.sendAppInvitationToAllParticipants();
 }
 
+/**
+ * Draw the entire screen - to be used with debounce()
+ * @return {Promise<void>}
+ */
 const render = () => {
-    if (!participants.length || !canvas || !canvas.getContext) {
+    // CORREGIDO: Usa app.participants
+    if (!app.participants.length || !canvas || !canvas.getContext) {
         return;
     }
 
@@ -145,7 +149,8 @@ const render = () => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // 2. Dibujar el Presentador Principal
-    const mainPresenterParticipant = participants.find(
+    // CORREGIDO: Usa app.participants
+    const mainPresenterParticipant = app.participants.find(
         (p) => p.zoomID === mainPresenterId
     );
     if (mainPresenterParticipant && mainPresenterParticipant.video) {
@@ -178,7 +183,8 @@ const render = () => {
     }
 
     // 3. Dibujar los Participantes Pequeños
-    const smallParticipants = participants.filter(
+    // CORREGIDO: Usa app.participants
+    const smallParticipants = app.participants.filter(
         (p) => p.zoomID !== mainPresenterId
     );
 
@@ -287,6 +293,7 @@ async function onUpdate({ topic, participants, color }) {
         await app.sdk.postMessage({ color: settings.color });
     }
 
+    // CORREGIDO: La variable 'participants' aquí se refiere a la lista 'cast'
     if (changes.participants) settings.cast = participants;
 
     if (!app.isImmersive) return;
@@ -329,36 +336,33 @@ function setCastSelect(participants) {
 }
 
 // Función para poblar el select de presentadores
+// CORREGIDO: Usa app.participants consistentemente
 const populateMainPresenterSelect = () => {
     const mainPresenterSelect = document.getElementById('mainPresenterSelect');
     if (!mainPresenterSelect) return;
 
-    // Guardar la selección actual antes de repoblar
     const currentSelection = mainPresenterSelect.value;
-
-    // Limpiar opciones existentes, excepto la primera (None)
     while (mainPresenterSelect.options.length > 1) {
         mainPresenterSelect.remove(1);
     }
 
-    // Añadir participantes como opciones
     app.participants.forEach((p) => {
         const option = document.createElement('option');
-        option.value = p.zoomID;
-        option.textContent = p.displayName;
+        // NOTA: El objeto del SDK no tiene zoomID o displayName, usamos los nombres correctos
+        option.value = p.participantId;
+        option.textContent = p.screenName;
         mainPresenterSelect.appendChild(option);
     });
 
-    // Restaurar la selección si el participante sigue existiendo
     if (
         currentSelection &&
-        app.participants.some((p) => p.zoomID === currentSelection)
+        app.participants.some((p) => p.participantId === currentSelection)
     ) {
         mainPresenterSelect.value = currentSelection;
     } else {
-        mainPresenterSelect.value = ''; // Resetear si el presentador anterior ya no está
-        mainPresenterId = ''; // También resetear la variable interna
-        socket.emit('set-main-presenter', ''); // Notificar a todos que no hay presentador principal
+        mainPresenterSelect.value = '';
+        mainPresenterId = '';
+        socket.emit('set-main-presenter', '');
     }
 };
 
@@ -384,7 +388,7 @@ function showElements() {
     if (app.userIsHost) {
         showEl(hostControls);
         setCastSelect(app.participants);
-        populateMainPresenterSelect();
+        populateMainPresenterSelect(); // CORREGIDO: Llamada movida aquí para la carga inicial
     }
 }
 
@@ -452,7 +456,7 @@ function setTopic(idx, text) {
     });
 }
 
-/*  Zoom Event Handlers */
+/* Zoom Event Handlers */
 
 app.sdk.onConnect(async () => {
     if (app.isInClient) return;
@@ -469,39 +473,12 @@ app.sdk.onMeeting(({ action }) => {
     if (action === 'ended') socket.disconnect();
 });
 
-app.sdk.onParticipantChange(async ({ participants: sdkParticipants }) => {
-    for (const part of sdkParticipants) {
-        const p = {
-            participantId: part.participantId.toString(),
-            screenName: part.screenName,
-            role: part.role,
-        };
-
-        const i = app.participants.findIndex(
-            ({ participantId }) => participantId === p.participantId
-        );
-
-        if (part.status === 'leave' && i !== -1) {
-            app.participants.splice(i, 1);
-            const idx = settings.cast.indexOf(p.participantId);
-
-            if (idx === -1) return;
-
-            settings.cast.splice(idx, 1);
-
-            if (app.isImmersive) await app.clearParticipant(p.participantId);
-        } else {
-            app.participants.push(p);
-        }
-    }
-
-    participants = app.participants;
-
-    await app.sdk.postMessage({ participants: app.participants });
+// CORREGIDO: El parámetro del SDK se llama 'participants', lo renombramos para evitar conflictos
+app.sdk.onParticipantChange(async () => {
+    // La lógica de `app.participants` ya se maneja dentro de immersive-app.js
+    // Aquí solo necesitamos re-renderizar y actualizar los menús
     setCastSelect(app.participants);
-    if (app.userIsHost) {
-        populateMainPresenterSelect();
-    }
+    populateMainPresenterSelect();
     render();
 });
 
@@ -512,7 +489,7 @@ app.sdk.onMessage(async ({ payload }) => {
         updateCast,
         ended,
         isHost,
-        participants: payloadParticipants,
+        participants, // Renombrado en la desestructuración para claridad
         activeTopic,
         topicIndex,
         uuid,
@@ -536,15 +513,14 @@ app.sdk.onMessage(async ({ payload }) => {
         setCastSelect(app.participants);
     }
 
-    // sync the list of participants
-    if (payloadParticipants) {
+    // sync the list of participants (esto se refiere a la lista para el side panel)
+    if (participants) {
         helpMsg.classList.add(classes.hidden);
         controls.classList.remove(classes.hidden);
-        setCastSelect(payloadParticipants);
-        participants = payloadParticipants;
-        if (app.userIsHost) {
-            populateMainPresenterSelect();
-        }
+        setCastSelect(participants);
+        // No debemos sobrescribir la lista principal de `app.participants` aquí
+        // sino actualizar los menús que dependen de la carga del payload
+        populateMainPresenterSelect();
     }
 
     // sync the list of displayed participants and draw them
